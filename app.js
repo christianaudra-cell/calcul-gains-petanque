@@ -1,4 +1,4 @@
-const APP_VERSION = 'v0.1.1';
+const APP_VERSION = 'v0.1.2';
 
 const state = {
   teams: 0,
@@ -305,11 +305,13 @@ function renderCustomInputs() {
     label.className = 'custom-input';
 
     const span = document.createElement('span');
-    span.textContent = `${index + 1}re partie gagnée`;    label.appendChild(span);
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'custom-input-row';
+    span.textContent = `${index + 1}re partie gagnée`;
+    label.appendChild(span);
 
     const isFinal = index === state.rounds.length - 1;
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = isFinal ? 'custom-input-row custom-input-row--final' : 'custom-input-row';
 
     const input = document.createElement('input');
     input.type = 'number';
@@ -345,13 +347,10 @@ function renderCustomInputs() {
       inputWrap.appendChild(incrementBtn);
     } else {
       inputWrap.appendChild(input);
-    }
-
-    if (isFinal) {
       const note = document.createElement('small');
       note.textContent = 'Calculé automatiquement';
       note.className = 'custom-input-note';
-      label.appendChild(note);
+      inputWrap.appendChild(note);
     }
 
     label.appendChild(inputWrap);

@@ -215,6 +215,23 @@ button.small {
   align-items: center;
 }
 
+.custom-input-row--final {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.custom-input-row--final input {
+  width: 100%;
+}
+
+.custom-input-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
 .custom-step-btn {
   min-height: 48px;
   min-width: 48px;

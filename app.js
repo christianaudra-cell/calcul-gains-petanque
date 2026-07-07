@@ -1,4 +1,4 @@
-const APP_VERSION = 'v0.1.2';
+const APP_VERSION = 'v0.1.3';
 
 const state = {
   teams: 0,
@@ -398,6 +398,12 @@ function applyCustomGains() {
   renderAnnouncement();
   updateSummary();
   updateStatus();
+
+  const finalIndex = state.rounds.length - 1;
+  const finalInput = elements.customInputs.querySelector(`input[data-index="${finalIndex}"]`);
+  if (finalInput) {
+    finalInput.value = String(state.rounds[finalIndex].gainPerVictory);
+  }
 }
 
 function commitCustomGain(input) {

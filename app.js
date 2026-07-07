@@ -321,25 +321,63 @@ function renderCustomInputs() {
   state.rounds.forEach((round, index) => {
     const label = document.createElement('label');
     label.className = 'custom-input';
-    label.innerHTML = `
-      <span>${index + 1}re partie gagnée</span>
-      <input type="number" min="0" step="1" inputmode="numeric" value="${round.gainPerVictory}" data-index="${index}" />
-    `;
+
+    const span = document.createElement('span');
+    span.textContent = `${index + 1}re partie gagnée`;
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'custom-input-row';
+
+    const decrementBtn = document.createElement('button');
+    decrementBtn.type = 'button';
+    decrementBtn.className = 'custom-step-btn';
+    decrementBtn.textContent = '–';
+    decrementBtn.dataset.index = String(index);
+    decrementBtn.dataset.step = '-5';
+    decrementBtn.addEventListener('click', handleCustomStep);
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '0';
+    input.step = '1';
+    input.inputMode = 'numeric';
+    input.value = String(round.gainPerVictory);
+    input.dataset.index = String(index);
+    input.addEventListener('change', handleCustomInput);
+    input.addEventListener('blur', handleCustomInput);
+    input.addEventListener('keydown', handleCustomInputKeydown);
+
+    const incrementBtn = document.createElement('button');
+    incrementBtn.type = 'button';
+    incrementBtn.className = 'custom-step-btn';
+    incrementBtn.textContent = '+';
+    incrementBtn.dataset.index = String(index);
+    incrementBtn.dataset.step = '5';
+    incrementBtn.addEventListener('click', handleCustomStep);
+
+    inputWrap.appendChild(decrementBtn);
+    inputWrap.appendChild(input);
+    inputWrap.appendChild(incrementBtn);
+
+    label.appendChild(span);
+    label.appendChild(inputWrap);
     elements.customInputs.appendChild(label);
   });
 }
 
-function handleCustomInput(event) {
-  const target = event.target;
-  if (target.tagName !== 'INPUT' || target.dataset.index === undefined) {
-    return;
+function normalizeCustomGain(rawValue) {
+  const numericValue = Number(rawValue);
+  if (!Number.isFinite(numericValue)) {
+    return 0;
   }
+  return Math.max(0, Math.round(numericValue));
+}
 
-  const index = Number(target.dataset.index);
-  const roundedValue = Number.isFinite(Number(target.value)) ? Math.round(Number(target.value)) : 0;
-  const safeValue = Math.max(0, roundedValue);
+function commitCustomGain(input) {
+  const index = Number(input.dataset.index);
+  const safeValue = normalizeCustomGain(input.value);
 
-  target.value = String(safeValue);
+  input.value = String(safeValue);
   state.customGains[index] = safeValue;
   state.lockedIndices[index] = true;
 
@@ -356,7 +394,38 @@ function handleCustomInput(event) {
   renderAnnouncement();
   updateSummary();
   updateStatus();
-  renderCustomInputs();
+}
+
+function handleCustomInput(event) {
+  const target = event.target;
+  if (!target || target.tagName !== 'INPUT' || target.dataset.index === undefined) {
+    return;
+  }
+
+  commitCustomGain(target);
+}
+
+function handleCustomInputKeydown(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.target.blur();
+  }
+}
+
+function handleCustomStep(event) {
+  const button = event.currentTarget;
+  const index = Number(button.dataset.index);
+  const step = Number(button.dataset.step) || 0;
+  const input = elements.customInputs.querySelector(`input[data-index="${index}"]`);
+
+  if (!input) {
+    return;
+  }
+
+  const currentValue = normalizeCustomGain(input.value);
+  const nextValue = Math.max(0, currentValue + step);
+  input.value = String(nextValue);
+  commitCustomGain(input);
 }
 
 function calculate() {
@@ -415,7 +484,6 @@ elements.shareBtn.addEventListener('click', sharePage);
 if (elements.resetAutoBtn) {
   elements.resetAutoBtn.addEventListener('click', resetToAuto);
 }
-elements.customInputs.addEventListener('input', handleCustomInput);
 elements.distributionStyle.addEventListener('change', () => {
   state.mode = elements.distributionStyle.value === 'custom' ? 'custom' : 'auto';
   elements.customSection.classList.toggle('hidden', state.mode !== 'custom');

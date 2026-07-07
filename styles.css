@@ -200,6 +200,23 @@ button.small {
   gap: 0.35rem;
 }
 
+.custom-input-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.custom-step-btn {
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 1.2rem;
+}
+
 .table-wrap {
   overflow-x: hidden;
 }

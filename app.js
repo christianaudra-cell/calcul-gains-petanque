@@ -102,88 +102,60 @@ function buildStyleProfile(style) {
 
 function solveExactGains(rounds, style, targetTotal, anchorGains = [], lockedIndices = []) {
   const minGain = Math.max(1, Math.round(state.inscription));
-  const minGap = 5;
   const profile = buildStyleProfile(style);
   const preferredGains = Array.isArray(anchorGains) && anchorGains.length === rounds.length
     ? anchorGains.map((gain, index) => Math.max(minGain, Math.round(gain)))
     : buildBaseGains(rounds, style).gains;
   const matchCounts = rounds.map((round) => round.matchesPlayed);
-  const memo = new Map();
 
-  function minimumPossibleTotal(index, prevGain) {
+  function search(index, remainingBudget, previousGain, builtGains) {
     if (index >= rounds.length) {
-      return 0;
-    }
-    const nextGain = prevGain + minGap;
-    return nextGain * matchCounts[index] + minimumPossibleTotal(index + 1, nextGain);
-  }
-
-  function maximumPossibleTotal(index, prevGain) {
-    if (index >= rounds.length) {
-      return 0;
-    }
-    const maxGap = index === rounds.length - 1
-      ? profile.maxGap[Math.min(index, profile.maxGap.length - 1)] + profile.finalBoost
-      : profile.maxGap[Math.min(index, profile.maxGap.length - 1)];
-    const nextGain = prevGain + maxGap;
-    return nextGain * matchCounts[index] + maximumPossibleTotal(index + 1, nextGain);
-  }
-
-  function search(index, remainingBudget, prevGain) {
-    const key = `${index}:${remainingBudget}:${prevGain}`;
-    if (memo.has(key)) {
-      return memo.get(key);
-    }
-    if (index >= rounds.length) {
-      return remainingBudget === 0 ? [] : null;
+      return remainingBudget === 0 ? builtGains : null;
     }
 
-    const lowerBound = index === 0 ? minGain : Math.max(minGain, prevGain - minGap);
-    const maxGap = index === rounds.length - 1
-      ? profile.maxGap[Math.min(index, profile.maxGap.length - 1)] + profile.finalBoost
-      : profile.maxGap[Math.min(index, profile.maxGap.length - 1)];
-    const upperBound = Math.min(1000, prevGain + maxGap, Math.floor(remainingBudget / Math.max(1, matchCounts[index])));
-    if (lowerBound > upperBound) {
-      memo.set(key, null);
+    const minimumGain = previousGain + 1;
+    const maximumGain = Math.min(1000, Math.floor(remainingBudget / Math.max(1, matchCounts[index])));
+    if (minimumGain > maximumGain) {
       return null;
     }
 
-    const minimumFuture = minimumPossibleTotal(index + 1, lowerBound);
-    const maximumFuture = maximumPossibleTotal(index + 1, upperBound);
-    if (remainingBudget < minimumFuture || remainingBudget > maximumFuture + upperBound * matchCounts[index]) {
-      memo.set(key, null);
-      return null;
+    const preferredGain = preferredGains[index] || minimumGain;
+    const candidateValues = [];
+    const startValue = Math.max(minimumGain, Math.min(maximumGain, preferredGain));
+
+    for (let candidateGain = startValue; candidateGain <= maximumGain; candidateGain += 1) {
+      candidateValues.push(candidateGain);
+    }
+    for (let candidateGain = startValue - 1; candidateGain >= minimumGain; candidateGain -= 1) {
+      candidateValues.push(candidateGain);
     }
 
-    const lockedValue = lockedIndices[index] ? Math.max(minGain, Math.round(preferredGains[index])) : null;
-    const candidateValues = lockedValue === null
-      ? Array.from({ length: upperBound - lowerBound + 1 }, (_, offset) => lowerBound + offset)
-      : [Math.max(lowerBound, Math.min(upperBound, lockedValue))];
-
-    const orderedCandidates = candidateValues
-      .map((candidateGain) => ({ candidateGain, distance: Math.abs(candidateGain - (preferredGains[index] || candidateGain)) }))
-      .sort((left, right) => left.distance - right.distance);
-
-    for (const { candidateGain } of orderedCandidates) {
+    for (const candidateGain of candidateValues) {
       const nextRemaining = remainingBudget - candidateGain * matchCounts[index];
       if (nextRemaining < 0) {
         continue;
       }
 
-      const rest = search(index + 1, nextRemaining, candidateGain);
-      if (!rest) {
-        continue;
+      const nextGains = [...builtGains, candidateGain];
+      const result = search(index + 1, nextRemaining, candidateGain, nextGains);
+      if (result) {
+        return result;
       }
-
-      memo.set(key, [candidateGain, ...rest]);
-      return memo.get(key);
     }
 
-    memo.set(key, null);
     return null;
   }
 
-  return search(0, targetTotal, 0) || preferredGains.slice(0, rounds.length);
+  const solution = search(0, targetTotal, minGain - 1, []);
+  if (solution) {
+    return solution;
+  }
+
+  const fallbackGains = [...preferredGains];
+  for (let index = 1; index < fallbackGains.length; index += 1) {
+    fallbackGains[index] = Math.max(fallbackGains[index], fallbackGains[index - 1] + 1);
+  }
+  return fallbackGains.slice(0, rounds.length);
 }
 
 function distributeRemainingBalance(rounds, gains, profile, targetTotal, lockedIndices = []) {

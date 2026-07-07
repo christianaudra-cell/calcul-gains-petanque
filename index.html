@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#2f7d32" />
+    <title>Calcul de gains pétanque</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-content">
+        <p class="eyebrow">Préparation rapide</p>
+        <h1>Répartition des gains de pétanque</h1>
+        <p class="hero-copy">Calculez l’enveloppe, le déroulé du tableau et la grille de gains en quelques secondes.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <h2>Paramètres</h2>
+        <div class="field-grid">
+          <label>
+            Nombre d’équipes
+            <input id="teams" type="number" min="2" step="1" value="50" />
+          </label>
+          <label>
+            Inscription par équipe
+            <input id="inscription" type="number" min="0" step="1" value="15" />
+          </label>
+          <label>
+            Dotation organisateur
+            <input id="dotation" type="number" min="0" step="1" value="300" />
+          </label>
+          <label>
+            Style de répartition
+            <select id="distributionStyle">
+              <option value="equilibre">Équilibré, final significatif</option>
+              <option value="finale">Finale plus forte</option>
+              <option value="large">Répartition plus large</option>
+              <option value="custom">Personnalisée</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="calculateBtn" type="button">Calculer automatiquement</button>
+          <button id="printBtn" class="secondary" type="button">Imprimer / PDF</button>
+          <button id="shareBtn" class="secondary" type="button">Partager</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="summary-grid">
+          <div class="summary-card">
+            <p>Enveloppe totale</p>
+            <strong id="envelopeValue">0,00 €</strong>
+          </div>
+          <div class="summary-card">
+            <p>Gain total vainqueur</p>
+            <strong id="winnerGainValue">0,00 €</strong>
+          </div>
+        </div>
+        <div id="statusBox" class="status status-neutral">Renseignez les paramètres puis lancez le calcul.</div>
+      </section>
+
+      <section id="customSection" class="card hidden">
+        <div class="section-head">
+          <h2>Répartition personnalisée</h2>
+          <p class="section-help">Modifiez les gains si besoin. L’écart avec l’enveloppe s’affiche immédiatement.</p>
+        </div>
+        <div id="customInputs" class="custom-inputs"></div>
+      </section>
+
+      <section class="card">
+        <h2>Tableau de répartition</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tour</th>
+                <th>Équipes au départ</th>
+                <th>Offices</th>
+                <th>Parties jouées</th>
+                <th>Gagnants payés</th>
+                <th>Gain par victoire</th>
+                <th>Total du tour</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+        <div id="resultsCards" class="results-cards" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <h2>À annoncer</h2>
+        <ul id="announcementList" class="announcement-list"></ul>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

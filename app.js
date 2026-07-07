@@ -1,3 +1,5 @@
+const APP_VERSION = 'v0.1.1';
+
 const state = {
   teams: 0,
   inscription: 0,
@@ -27,6 +29,8 @@ const elements = {
   resultsBody: document.getElementById('resultsBody'),
   resultsCards: document.getElementById('resultsCards'),
   announcementList: document.getElementById('announcementList'),
+  appVersion: document.getElementById('appVersion'),
+  appVersionFooter: document.getElementById('appVersionFooter'),
 };
 
 function parseInputs() {
@@ -271,10 +275,16 @@ function formatCurrency(value) {
 function updateStatus() {
   const distributed = state.rounds.reduce((sum, round) => sum + round.totalRound, 0);
   const difference = Math.round(state.envelope - distributed);
+  const lastRound = state.rounds[state.rounds.length - 1];
+  const previousRound = state.rounds[state.rounds.length - 2];
+  const isFinalValid = !lastRound || !previousRound || lastRound.gainPerVictory > previousRound.gainPerVictory;
 
-  if (difference === 0) {
+  if (difference === 0 && isFinalValid) {
     elements.statusBox.className = 'status status-success';
     elements.statusBox.textContent = 'Répartition cohérente : la somme distribuée correspond exactement à l’enveloppe.';
+  } else if (!isFinalValid) {
+    elements.statusBox.className = 'status status-danger';
+    elements.statusBox.textContent = 'Répartition impossible : la finale devient inférieure à l’avant-dernière partie.';
   } else if (difference > 0) {
     elements.statusBox.className = 'status status-warning';
     elements.statusBox.textContent = `Écart : il reste ${formatCurrency(difference)} à répartir.`;
@@ -295,18 +305,11 @@ function renderCustomInputs() {
     label.className = 'custom-input';
 
     const span = document.createElement('span');
-    span.textContent = `${index + 1}re partie gagnée`;
-
+    span.textContent = `${index + 1}re partie gagnée`;    label.appendChild(span);
     const inputWrap = document.createElement('div');
     inputWrap.className = 'custom-input-row';
 
-    const decrementBtn = document.createElement('button');
-    decrementBtn.type = 'button';
-    decrementBtn.className = 'custom-step-btn';
-    decrementBtn.textContent = '–';
-    decrementBtn.dataset.index = String(index);
-    decrementBtn.dataset.step = '-5';
-    decrementBtn.addEventListener('click', handleCustomStep);
+    const isFinal = index === state.rounds.length - 1;
 
     const input = document.createElement('input');
     input.type = 'number';
@@ -315,23 +318,42 @@ function renderCustomInputs() {
     input.inputMode = 'numeric';
     input.value = String(round.gainPerVictory);
     input.dataset.index = String(index);
+    input.readOnly = isFinal;
     input.addEventListener('change', handleCustomInput);
     input.addEventListener('blur', handleCustomInput);
     input.addEventListener('keydown', handleCustomInputKeydown);
 
-    const incrementBtn = document.createElement('button');
-    incrementBtn.type = 'button';
-    incrementBtn.className = 'custom-step-btn';
-    incrementBtn.textContent = '+';
-    incrementBtn.dataset.index = String(index);
-    incrementBtn.dataset.step = '5';
-    incrementBtn.addEventListener('click', handleCustomStep);
+    if (!isFinal) {
+      const decrementBtn = document.createElement('button');
+      decrementBtn.type = 'button';
+      decrementBtn.className = 'custom-step-btn';
+      decrementBtn.textContent = '–';
+      decrementBtn.dataset.index = String(index);
+      decrementBtn.dataset.step = '-5';
+      decrementBtn.addEventListener('click', handleCustomStep);
 
-    inputWrap.appendChild(decrementBtn);
-    inputWrap.appendChild(input);
-    inputWrap.appendChild(incrementBtn);
+      const incrementBtn = document.createElement('button');
+      incrementBtn.type = 'button';
+      incrementBtn.className = 'custom-step-btn';
+      incrementBtn.textContent = '+';
+      incrementBtn.dataset.index = String(index);
+      incrementBtn.dataset.step = '5';
+      incrementBtn.addEventListener('click', handleCustomStep);
 
-    label.appendChild(span);
+      inputWrap.appendChild(decrementBtn);
+      inputWrap.appendChild(input);
+      inputWrap.appendChild(incrementBtn);
+    } else {
+      inputWrap.appendChild(input);
+    }
+
+    if (isFinal) {
+      const note = document.createElement('small');
+      note.textContent = 'Calculé automatiquement';
+      note.className = 'custom-input-note';
+      label.appendChild(note);
+    }
+
     label.appendChild(inputWrap);
     elements.customInputs.appendChild(label);
   });
@@ -345,27 +367,49 @@ function normalizeCustomGain(rawValue) {
   return Math.max(0, Math.round(numericValue));
 }
 
-function commitCustomGain(input) {
-  const index = Number(input.dataset.index);
-  const safeValue = normalizeCustomGain(input.value);
+function applyCustomGains() {
+  const rounds = state.rounds;
+  if (!rounds.length) {
+    return;
+  }
 
-  input.value = String(safeValue);
-  state.customGains[index] = safeValue;
-  state.lockedIndices[index] = true;
-
-  state.rounds = state.rounds.map((round, roundIndex) => {
-    const gainPerVictory = roundIndex === index ? safeValue : round.gainPerVictory;
-    return {
-      ...round,
-      gainPerVictory,
-      totalRound: gainPerVictory * round.matchesPlayed,
-    };
+  const editableRounds = rounds.slice(0, -1);
+  const lockedGains = editableRounds.map((round, index) => {
+    const currentInput = elements.customInputs.querySelector(`input[data-index="${index}"]`);
+    const value = currentInput ? normalizeCustomGain(currentInput.value) : round.gainPerVictory;
+    return Math.max(0, value);
   });
+
+  const totalFixed = editableRounds.reduce((sum, round, index) => sum + lockedGains[index] * round.matchesPlayed, 0);
+  const totalRemaining = Math.round(state.envelope) - totalFixed;
+  const lastRound = rounds[rounds.length - 1];
+  const finalGain = Math.max(0, Math.round(totalRemaining / lastRound.matchesPlayed));
+
+  const computedGains = [...lockedGains, finalGain];
+  state.customGains = computedGains;
+  state.lockedIndices = editableRounds.map((_, index) => true).concat([false]);
+
+  state.rounds = rounds.map((round, index) => ({
+    ...round,
+    gainPerVictory: computedGains[index],
+    totalRound: computedGains[index] * round.matchesPlayed,
+  }));
 
   renderTable();
   renderAnnouncement();
   updateSummary();
   updateStatus();
+}
+
+function commitCustomGain(input) {
+  const index = Number(input.dataset.index);
+  if (index === state.rounds.length - 1) {
+    return;
+  }
+
+  const safeValue = normalizeCustomGain(input.value);
+  input.value = String(safeValue);
+  applyCustomGains();
 }
 
 function handleCustomInput(event) {
@@ -463,3 +507,11 @@ elements.distributionStyle.addEventListener('change', () => {
 });
 
 window.addEventListener('DOMContentLoaded', calculate);
+
+// Display app version
+if (elements.appVersion) {
+  elements.appVersion.textContent = APP_VERSION;
+}
+if (elements.appVersionFooter) {
+  elements.appVersionFooter.textContent = APP_VERSION;
+}

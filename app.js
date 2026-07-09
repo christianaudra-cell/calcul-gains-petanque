@@ -1,4 +1,4 @@
-const APP_VERSION = 'v0.2.1';
+const APP_VERSION = 'v0.2.2';
 
 const CONTEST_TYPES = {
   tete: 1,
@@ -354,36 +354,9 @@ function buildAutoProposal() {
   }
 
   const divisor = Math.max(1, state.playersPerTeam);
-  const { gains: baseGains } = buildBaseGains(rounds, state.style, divisor);
-
-  const balancedGains = [];
-  let distributed = 0;
   const envelope = Math.round(state.envelope);
-
-  rounds.forEach((round, index) => {
-    const winnersPaid = Math.max(0, round.matchesPlayed);
-    const remainingBudget = Math.max(0, envelope - distributed);
-
-    if (winnersPaid === 0 || remainingBudget === 0) {
-      balancedGains.push(0);
-      return;
-    }
-
-    const maxAffordable = roundDownToDivisible(
-      Math.floor(remainingBudget / winnersPaid),
-      divisor,
-    );
-
-    const progressiveTarget = index > 0
-      ? Math.max(baseGains[index], balancedGains[index - 1] + divisor)
-      : baseGains[index];
-
-    const cappedTarget = Math.min(progressiveTarget, maxAffordable);
-    const safeGain = Math.max(0, roundDownToDivisible(cappedTarget, divisor));
-
-    balancedGains.push(safeGain);
-    distributed += safeGain * winnersPaid;
-  });
+  const { gains: baseGains, profile } = buildBaseGains(rounds, state.style, divisor);
+  const balancedGains = distributeRemainingBalance(rounds, baseGains, profile, envelope, divisor);
 
   const proposal = rounds.map((round, index) => {
     const gainPerVictory = balancedGains[index];

@@ -1,4 +1,4 @@
-const APP_VERSION = 'v0.2.2';
+const APP_VERSION = 'v0.2.3';
 
 const CONTEST_TYPES = {
   tete: 1,
@@ -18,6 +18,8 @@ const state = {
   lockedIndices: [],
   contestType: 'doublette',
   playersPerTeam: 2,
+  respectDivisibility: true,
+  autoResult: null,
   splitRows: [],
 };
 
@@ -26,6 +28,7 @@ const elements = {
   inscription: document.getElementById('inscription'),
   dotation: document.getElementById('dotation'),
   distributionStyle: document.getElementById('distributionStyle'),
+  respectDivisibility: document.getElementById('respectDivisibility'),
   contestType: document.getElementById('contestType'),
   calculateBtn: document.getElementById('calculateBtn'),
   printBtn: document.getElementById('printBtn'),
@@ -77,6 +80,7 @@ function parseInputs() {
   state.dotation = Number(elements.dotation.value) || 0;
   state.envelope = state.teams * state.inscription + state.dotation;
   state.style = elements.distributionStyle.value;
+  state.respectDivisibility = elements.respectDivisibility ? elements.respectDivisibility.checked : true;
   state.contestType = elements.contestType ? elements.contestType.value : 'doublette';
   state.playersPerTeam = getPlayersPerTeam(state.contestType);
   state.mode = state.style === 'custom' ? 'custom' : 'auto';
@@ -133,6 +137,19 @@ function buildBaseGains(rounds, style, divisor = 1) {
   }
 
   return { gains, profile: selectedProfile };
+}
+
+function buildMinimumFeasibleGains(rounds, divisor = 1) {
+  const safeDivisor = Math.max(1, divisor);
+  const minGain = roundUpToDivisible(Math.max(1, Math.round(state.inscription)), safeDivisor);
+  const gains = [minGain];
+
+  for (let index = 1; index < rounds.length; index += 1) {
+    gains.push(gains[index - 1] + safeDivisor);
+  }
+
+  const total = rounds.reduce((sum, round, index) => sum + gains[index] * round.matchesPlayed, 0);
+  return { gains, total };
 }
 
 function buildStyleProfile(style) {
@@ -350,16 +367,49 @@ function renderSplitSection() {
 function buildAutoProposal() {
   const rounds = buildRounds();
   if (!rounds.length) {
-    return { rounds: [], gainsByVictory: [], proposal: [] };
+    return { rounds: [], gainsByVictory: [], proposal: [], seedProposal: [], seedGainsByVictory: [], impossible: false };
   }
 
-  const divisor = Math.max(1, state.playersPerTeam);
+  const divisor = state.respectDivisibility ? Math.max(1, state.playersPerTeam) : 1;
   const envelope = Math.round(state.envelope);
+  const minimumProposal = buildMinimumFeasibleGains(rounds, divisor);
+
+  if (state.respectDivisibility && minimumProposal.total > envelope) {
+    const seedProposal = rounds.map((round, index) => {
+      const gainPerVictory = minimumProposal.gains[index];
+      return {
+        ...round,
+        gainPerVictory,
+        totalRound: gainPerVictory * round.matchesPlayed,
+      };
+    });
+
+    return {
+      rounds: [],
+      gainsByVictory: [],
+      proposal: [],
+      seedProposal,
+      seedGainsByVictory: minimumProposal.gains.slice(0, rounds.length),
+      impossible: true,
+      minimumTotal: minimumProposal.total,
+      envelope,
+      divisor,
+    };
+  }
+
   const { gains: baseGains, profile } = buildBaseGains(rounds, state.style, divisor);
   const balancedGains = distributeRemainingBalance(rounds, baseGains, profile, envelope, divisor);
 
+  let proposalGains = Array.isArray(balancedGains) ? balancedGains.slice(0, rounds.length) : [];
+  let distributedTotal = proposalGains.reduce((sum, gain, index) => sum + gain * rounds[index].matchesPlayed, 0);
+
+  if (distributedTotal > envelope) {
+    proposalGains = minimumProposal.gains.slice(0, rounds.length);
+    distributedTotal = proposalGains.reduce((sum, gain, index) => sum + gain * rounds[index].matchesPlayed, 0);
+  }
+
   const proposal = rounds.map((round, index) => {
-    const gainPerVictory = balancedGains[index];
+    const gainPerVictory = proposalGains[index];
     return {
       ...round,
       gainPerVictory,
@@ -369,8 +419,13 @@ function buildAutoProposal() {
 
   return {
     rounds,
-    gainsByVictory: balancedGains,
+    gainsByVictory: proposalGains,
     proposal,
+    seedProposal: proposal,
+    seedGainsByVictory: proposalGains,
+    impossible: false,
+    distributedTotal,
+    envelope,
   };
 }
 
@@ -457,6 +512,18 @@ function formatCurrency(value) {
 }
 
 function updateStatus() {
+  if (state.autoResult && state.autoResult.impossible) {
+    elements.statusBox.className = 'status status-danger';
+    const minimumTotal = formatCurrency(state.autoResult.minimumTotal || 0);
+    const envelope = formatCurrency(state.autoResult.envelope || state.envelope);
+    if (state.respectDivisibility) {
+      elements.statusBox.textContent = `Répartition impossible avec ces contraintes : augmentez la dotation, baissez le premier gain ou désactivez la divisibilité par joueur. Total minimal nécessaire : ${minimumTotal}. Enveloppe disponible : ${envelope}.`;
+    } else {
+      elements.statusBox.textContent = `Répartition impossible avec ces contraintes : augmentez la dotation ou baissez le premier gain. Total minimal nécessaire : ${minimumTotal}. Enveloppe disponible : ${envelope}.`;
+    }
+    return;
+  }
+
   const distributed = state.rounds.reduce((sum, round) => sum + round.totalRound, 0);
   const difference = Math.round(state.envelope - distributed);
   const lastRound = state.rounds[state.rounds.length - 1];
@@ -658,8 +725,10 @@ function handleCustomStep(event) {
 function calculate() {
   parseInputs();
   const proposal = buildAutoProposal();
-  state.rounds = proposal.proposal;
-  state.customGains = proposal.gainsByVictory;
+  state.autoResult = proposal;
+  const useCustomSeed = state.mode === 'custom' && Array.isArray(proposal.seedProposal);
+  state.rounds = useCustomSeed ? proposal.seedProposal : proposal.proposal;
+  state.customGains = useCustomSeed ? proposal.seedGainsByVictory : proposal.gainsByVictory;
   state.lockedIndices = [];
   renderTable();
   renderAnnouncement();
@@ -711,6 +780,9 @@ elements.printBtn.addEventListener('click', printPage);
 elements.shareBtn.addEventListener('click', sharePage);
 if (elements.resetAutoBtn) {
   elements.resetAutoBtn.addEventListener('click', resetToAuto);
+}
+if (elements.respectDivisibility) {
+  elements.respectDivisibility.addEventListener('change', calculate);
 }
 elements.distributionStyle.addEventListener('change', () => {
   state.mode = elements.distributionStyle.value === 'custom' ? 'custom' : 'auto';

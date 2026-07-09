@@ -1,6 +1,6 @@
 # calcul-gains-petanque
 
-Version actuelle : v0.2.0
+Version actuelle : v0.2.3
 
 Cette application web simple aide à préparer la répartition des gains d’un concours de pétanque sans backend.
 

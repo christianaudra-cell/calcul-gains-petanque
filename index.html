@@ -41,6 +41,14 @@
               <option value="custom">Personnalisée</option>
             </select>
           </label>
+          <label>
+            Type de concours
+            <select id="contestType">
+              <option value="tete">Tête-à-tête (1 joueur / équipe)</option>
+              <option value="doublette" selected>Doublette (2 joueurs / équipe)</option>
+              <option value="triplette">Triplette (3 joueurs / équipe)</option>
+            </select>
+          </label>
         </div>
 
         <div class="actions">
@@ -91,6 +99,29 @@
           </table>
         </div>
         <div id="resultsCards" class="results-cards" aria-live="polite"></div>
+      </section>
+
+      <section id="splitSection" class="card hidden">
+        <div class="section-head">
+          <h2>Partage possible de la cagnotte restante</h2>
+          <p class="section-help">Ce tableau sert uniquement si les équipes encore en course décident de partager la cagnotte avant la fin du concours.</p>
+        </div>
+        <div class="table-wrap split-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Après X parties gagnées</th>
+                <th>Équipes encore en course</th>
+                <th>Parties restantes</th>
+                <th>Cagnotte restante</th>
+                <th>Partage possible / équipe</th>
+                <th>Reste éventuel</th>
+              </tr>
+            </thead>
+            <tbody id="splitBody"></tbody>
+          </table>
+        </div>
+        <div id="splitCards" class="results-cards" aria-live="polite"></div>
       </section>
 
       <section class="card">

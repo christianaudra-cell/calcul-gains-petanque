@@ -232,6 +232,12 @@ button.small {
   margin-top: 0.2rem;
 }
 
+.custom-warning {
+  color: var(--warning);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .custom-step-btn {
   min-height: 48px;
   min-width: 48px;
@@ -244,6 +250,10 @@ button.small {
 
 .table-wrap {
   overflow-x: hidden;
+}
+
+.split-table-wrap table {
+  min-width: 760px;
 }
 
 table {

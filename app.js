@@ -1,4 +1,10 @@
-const APP_VERSION = 'v0.1.3';
+const APP_VERSION = 'v0.2.0';
+
+const CONTEST_TYPES = {
+  tete: 1,
+  doublette: 2,
+  triplette: 3,
+};
 
 const state = {
   teams: 0,
@@ -10,6 +16,9 @@ const state = {
   mode: 'auto',
   style: 'equilibre',
   lockedIndices: [],
+  contestType: 'doublette',
+  playersPerTeam: 2,
+  splitRows: [],
 };
 
 const elements = {
@@ -17,6 +26,7 @@ const elements = {
   inscription: document.getElementById('inscription'),
   dotation: document.getElementById('dotation'),
   distributionStyle: document.getElementById('distributionStyle'),
+  contestType: document.getElementById('contestType'),
   calculateBtn: document.getElementById('calculateBtn'),
   printBtn: document.getElementById('printBtn'),
   shareBtn: document.getElementById('shareBtn'),
@@ -28,10 +38,38 @@ const elements = {
   customInputs: document.getElementById('customInputs'),
   resultsBody: document.getElementById('resultsBody'),
   resultsCards: document.getElementById('resultsCards'),
+  splitSection: document.getElementById('splitSection'),
+  splitBody: document.getElementById('splitBody'),
+  splitCards: document.getElementById('splitCards'),
   announcementList: document.getElementById('announcementList'),
   appVersion: document.getElementById('appVersion'),
   appVersionFooter: document.getElementById('appVersionFooter'),
 };
+
+function getPlayersPerTeam(contestType) {
+  return CONTEST_TYPES[contestType] || CONTEST_TYPES.doublette;
+}
+
+function roundDownToDivisible(value, divisor) {
+  if (divisor <= 1) {
+    return Math.floor(value);
+  }
+  return Math.floor(Math.floor(value) / divisor) * divisor;
+}
+
+function roundUpToDivisible(value, divisor) {
+  if (divisor <= 1) {
+    return Math.ceil(value);
+  }
+  return Math.ceil(Number(value) / divisor) * divisor;
+}
+
+function isDivisibleGain(value, divisor) {
+  if (divisor <= 1) {
+    return true;
+  }
+  return Math.round(value) % divisor === 0;
+}
 
 function parseInputs() {
   state.teams = Number(elements.teams.value) || 0;
@@ -39,6 +77,8 @@ function parseInputs() {
   state.dotation = Number(elements.dotation.value) || 0;
   state.envelope = state.teams * state.inscription + state.dotation;
   state.style = elements.distributionStyle.value;
+  state.contestType = elements.contestType ? elements.contestType.value : 'doublette';
+  state.playersPerTeam = getPlayersPerTeam(state.contestType);
   state.mode = state.style === 'custom' ? 'custom' : 'auto';
 }
 
@@ -67,9 +107,9 @@ function buildRounds() {
   return rounds;
 }
 
-function buildBaseGains(rounds, style) {
-  const minGain = Math.max(1, Math.round(state.inscription));
-  const minGap = 5;
+function buildBaseGains(rounds, style, divisor = 1) {
+  const minGain = roundUpToDivisible(Math.max(1, Math.round(state.inscription)), divisor);
+  const minGap = Math.max(1, divisor);
   const profile = {
     equilibre: { steps: [5, 5, 5, 6, 8], finalBoost: 10, weights: [1, 2, 3, 5, 8, 10], maxGap: [8, 8, 10, 12, 15, 20] },
     finale: { steps: [5, 6, 7, 8, 10], finalBoost: 15, weights: [1, 2, 3, 5, 8, 10], maxGap: [8, 10, 12, 14, 16, 22] },
@@ -85,7 +125,11 @@ function buildBaseGains(rounds, style) {
   }
 
   for (let index = 1; index < gains.length; index += 1) {
-    gains[index] = Math.max(gains[index], gains[index - 1] + minGap);
+    const steppedGain = Math.max(gains[index], gains[index - 1] + minGap);
+    gains[index] = roundUpToDivisible(steppedGain, divisor);
+    if (gains[index] <= gains[index - 1]) {
+      gains[index] = gains[index - 1] + divisor;
+    }
   }
 
   return { gains, profile: selectedProfile };
@@ -104,35 +148,74 @@ function buildStyleProfile(style) {
   };
 }
 
-function solveExactGains(rounds, style, targetTotal, anchorGains = [], lockedIndices = []) {
-  const minGain = Math.max(1, Math.round(state.inscription));
+function buildCandidateValues(minimumGain, maximumGain, preferredGain, step) {
+  const values = [];
+  if (minimumGain > maximumGain) {
+    return values;
+  }
+
+  const safeStep = Math.max(1, step);
+  const boundedPreferred = Math.max(minimumGain, Math.min(maximumGain, preferredGain));
+  const preferredOffset = (boundedPreferred - minimumGain) % safeStep;
+  const alignedPreferred = boundedPreferred - preferredOffset;
+  values.push(alignedPreferred);
+
+  for (let delta = safeStep; values.length < 250; delta += safeStep) {
+    const up = alignedPreferred + delta;
+    const down = alignedPreferred - delta;
+    let hasNewValue = false;
+
+    if (up <= maximumGain) {
+      values.push(up);
+      hasNewValue = true;
+    }
+    if (down >= minimumGain) {
+      values.push(down);
+      hasNewValue = true;
+    }
+    if (!hasNewValue) {
+      break;
+    }
+  }
+
+  return values;
+}
+
+function solveExactGains(rounds, style, targetTotal, anchorGains = [], divisor = 1) {
+  const minGain = roundUpToDivisible(Math.max(1, Math.round(state.inscription)), divisor);
   const profile = buildStyleProfile(style);
   const preferredGains = Array.isArray(anchorGains) && anchorGains.length === rounds.length
-    ? anchorGains.map((gain, index) => Math.max(minGain, Math.round(gain)))
-    : buildBaseGains(rounds, style).gains;
+    ? anchorGains.map((gain) => roundUpToDivisible(Math.max(minGain, Math.round(gain)), divisor))
+    : buildBaseGains(rounds, style, divisor).gains;
   const matchCounts = rounds.map((round) => round.matchesPlayed);
+  const safeDivisor = Math.max(1, divisor);
+  let bestUnder = null;
 
-  function search(index, remainingBudget, previousGain, builtGains) {
+  function search(index, remainingBudget, previousGain, builtGains, distributedTotal, distanceToPreferred) {
     if (index >= rounds.length) {
-      return remainingBudget === 0 ? builtGains : null;
+      if (remainingBudget === 0) {
+        return builtGains;
+      }
+
+      if (!bestUnder || distributedTotal > bestUnder.total || (distributedTotal === bestUnder.total && distanceToPreferred < bestUnder.distance)) {
+        bestUnder = {
+          gains: builtGains,
+          total: distributedTotal,
+          distance: distanceToPreferred,
+        };
+      }
+      return null;
     }
 
-    const minimumGain = previousGain + 1;
-    const maximumGain = Math.min(1000, Math.floor(remainingBudget / Math.max(1, matchCounts[index])));
+    const minimumGain = roundUpToDivisible(previousGain + 1, safeDivisor);
+    const theoreticalMax = Math.floor(remainingBudget / Math.max(1, matchCounts[index]));
+    const maximumGain = roundDownToDivisible(Math.min(1000, theoreticalMax), safeDivisor);
     if (minimumGain > maximumGain) {
       return null;
     }
 
-    const preferredGain = preferredGains[index] || minimumGain;
-    const candidateValues = [];
-    const startValue = Math.max(minimumGain, Math.min(maximumGain, preferredGain));
-
-    for (let candidateGain = startValue; candidateGain <= maximumGain; candidateGain += 1) {
-      candidateValues.push(candidateGain);
-    }
-    for (let candidateGain = startValue - 1; candidateGain >= minimumGain; candidateGain -= 1) {
-      candidateValues.push(candidateGain);
-    }
+    const preferredGain = roundUpToDivisible(preferredGains[index] || minimumGain, safeDivisor);
+    const candidateValues = buildCandidateValues(minimumGain, maximumGain, preferredGain, safeDivisor);
 
     for (const candidateGain of candidateValues) {
       const nextRemaining = remainingBudget - candidateGain * matchCounts[index];
@@ -141,7 +224,15 @@ function solveExactGains(rounds, style, targetTotal, anchorGains = [], lockedInd
       }
 
       const nextGains = [...builtGains, candidateGain];
-      const result = search(index + 1, nextRemaining, candidateGain, nextGains);
+      const nextDistance = distanceToPreferred + Math.abs(candidateGain - preferredGains[index]);
+      const result = search(
+        index + 1,
+        nextRemaining,
+        candidateGain,
+        nextGains,
+        distributedTotal + candidateGain * matchCounts[index],
+        nextDistance,
+      );
       if (result) {
         return result;
       }
@@ -150,20 +241,110 @@ function solveExactGains(rounds, style, targetTotal, anchorGains = [], lockedInd
     return null;
   }
 
-  const solution = search(0, targetTotal, minGain - 1, []);
+  const solution = search(0, targetTotal, minGain - 1, [], 0, 0);
   if (solution) {
     return solution;
   }
 
-  const fallbackGains = [...preferredGains];
+  if (bestUnder && Array.isArray(bestUnder.gains)) {
+    return bestUnder.gains;
+  }
+
+  const fallbackGains = preferredGains.map((gain) => roundUpToDivisible(gain, safeDivisor));
   for (let index = 1; index < fallbackGains.length; index += 1) {
-    fallbackGains[index] = Math.max(fallbackGains[index], fallbackGains[index - 1] + 1);
+    const minimumNext = roundUpToDivisible(fallbackGains[index - 1] + 1, safeDivisor);
+    fallbackGains[index] = Math.max(fallbackGains[index], minimumNext);
   }
   return fallbackGains.slice(0, rounds.length);
 }
 
-function distributeRemainingBalance(rounds, gains, profile, targetTotal, lockedIndices = []) {
-  return solveExactGains(rounds, state.style, targetTotal, gains, lockedIndices);
+function distributeRemainingBalance(rounds, gains, profile, targetTotal, divisor = 1) {
+  return solveExactGains(rounds, state.style, targetTotal, gains, divisor);
+}
+
+function buildSplitRows() {
+  const rows = [];
+  if (!state.rounds.length) {
+    return rows;
+  }
+
+  const roundCount = state.rounds.length;
+  const playersPerTeam = Math.max(1, state.playersPerTeam);
+
+  for (let wins = 1; wins < roundCount; wins += 1) {
+    const teamsRemaining = state.rounds[wins].teamsStart;
+    const includeRow = wins >= 4 || teamsRemaining >= 4;
+    if (!includeRow) {
+      continue;
+    }
+
+    const distributed = state.rounds
+      .slice(0, wins)
+      .reduce((sum, round) => sum + round.totalRound, 0);
+
+    const remainingPot = Math.max(0, Math.round(state.envelope - distributed));
+    const theoreticalShare = Math.floor(remainingPot / Math.max(1, teamsRemaining));
+    const sharePerTeam = roundDownToDivisible(theoreticalShare, playersPerTeam);
+    const remainder = remainingPot - sharePerTeam * teamsRemaining;
+
+    rows.push({
+      wins,
+      teamsRemaining,
+      gamesRemaining: roundCount - wins,
+      remainingPot,
+      sharePerTeam,
+      remainder,
+    });
+  }
+
+  return rows;
+}
+
+function renderSplitSection() {
+  if (!elements.splitSection || !elements.splitBody || !elements.splitCards) {
+    return;
+  }
+
+  const rows = buildSplitRows();
+  state.splitRows = rows;
+  elements.splitBody.innerHTML = '';
+  elements.splitCards.innerHTML = '';
+
+  if (!rows.length) {
+    elements.splitSection.classList.add('hidden');
+    return;
+  }
+
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>Après ${row.wins} parties gagnées</td>
+      <td>${row.teamsRemaining}</td>
+      <td>${row.gamesRemaining}</td>
+      <td>${formatCurrency(row.remainingPot)}</td>
+      <td>${formatCurrency(row.sharePerTeam)}</td>
+      <td>${formatCurrency(row.remainder)}</td>
+    `;
+    elements.splitBody.appendChild(tr);
+
+    const card = document.createElement('article');
+    card.className = 'results-card';
+    card.innerHTML = `
+      <div class="results-card-head">
+        <span>Après ${row.wins} parties gagnées</span>
+        <span>${row.teamsRemaining} équipes</span>
+      </div>
+      <dl>
+        <div><dt>Parties restantes</dt><dd>${row.gamesRemaining}</dd></div>
+        <div><dt>Cagnotte restante</dt><dd>${formatCurrency(row.remainingPot)}</dd></div>
+        <div><dt>Partage possible / équipe</dt><dd>${formatCurrency(row.sharePerTeam)}</dd></div>
+        <div><dt>Reste éventuel</dt><dd>${formatCurrency(row.remainder)}</dd></div>
+      </dl>
+    `;
+    elements.splitCards.appendChild(card);
+  });
+
+  elements.splitSection.classList.remove('hidden');
 }
 
 function buildAutoProposal() {
@@ -172,8 +353,9 @@ function buildAutoProposal() {
     return { rounds: [], gainsByVictory: [], proposal: [] };
   }
 
-  const { gains, profile } = buildBaseGains(rounds, state.style);
-  const balancedGains = distributeRemainingBalance(rounds, [...gains], profile, Math.round(state.envelope));
+  const divisor = Math.max(1, state.playersPerTeam);
+  const { gains, profile } = buildBaseGains(rounds, state.style, divisor);
+  const balancedGains = distributeRemainingBalance(rounds, [...gains], profile, Math.round(state.envelope), divisor);
 
   const proposal = rounds.map((round, index) => {
     const gainPerVictory = balancedGains[index];
@@ -214,6 +396,7 @@ function rebalanceCustomGains() {
   renderAnnouncement();
   updateSummary();
   updateStatus();
+  renderSplitSection();
   renderCustomInputs();
 }
 
@@ -287,7 +470,7 @@ function updateStatus() {
     elements.statusBox.textContent = 'Répartition impossible : la finale devient inférieure à l’avant-dernière partie.';
   } else if (difference > 0) {
     elements.statusBox.className = 'status status-warning';
-    elements.statusBox.textContent = `Écart : il reste ${formatCurrency(difference)} à répartir.`;
+    elements.statusBox.textContent = `Écart : il reste ${formatCurrency(difference)} à répartir (euros entiers uniquement).`;
   } else {
     elements.statusBox.className = 'status status-danger';
     elements.statusBox.textContent = `Écart : le total dépasse l’enveloppe de ${formatCurrency(Math.abs(difference))}.`;
@@ -354,6 +537,14 @@ function renderCustomInputs() {
     }
 
     label.appendChild(inputWrap);
+
+    if (!isDivisibleGain(round.gainPerVictory, state.playersPerTeam)) {
+      const warning = document.createElement('small');
+      warning.className = 'custom-warning';
+      warning.textContent = 'Ce gain n’est pas divisible équitablement entre les joueurs de l’équipe.';
+      label.appendChild(warning);
+    }
+
     elements.customInputs.appendChild(label);
   });
 }
@@ -398,12 +589,8 @@ function applyCustomGains() {
   renderAnnouncement();
   updateSummary();
   updateStatus();
-
-  const finalIndex = state.rounds.length - 1;
-  const finalInput = elements.customInputs.querySelector(`input[data-index="${finalIndex}"]`);
-  if (finalInput) {
-    finalInput.value = String(state.rounds[finalIndex].gainPerVictory);
-  }
+  renderSplitSection();
+  renderCustomInputs();
 }
 
 function commitCustomGain(input) {
@@ -458,6 +645,7 @@ function calculate() {
   renderTable();
   renderAnnouncement();
   updateSummary();
+  renderSplitSection();
   elements.customSection.classList.toggle('hidden', state.mode !== 'custom');
 
   if (state.mode === 'custom') {
@@ -510,6 +698,10 @@ elements.distributionStyle.addEventListener('change', () => {
   elements.customSection.classList.toggle('hidden', state.mode !== 'custom');
   calculate();
 });
+
+if (elements.contestType) {
+  elements.contestType.addEventListener('change', calculate);
+}
 
 window.addEventListener('DOMContentLoaded', calculate);
 

@@ -1,4 +1,4 @@
-const APP_VERSION = 'v0.2.0';
+const APP_VERSION = 'v0.2.1';
 
 const CONTEST_TYPES = {
   tete: 1,
@@ -354,8 +354,36 @@ function buildAutoProposal() {
   }
 
   const divisor = Math.max(1, state.playersPerTeam);
-  const { gains, profile } = buildBaseGains(rounds, state.style, divisor);
-  const balancedGains = distributeRemainingBalance(rounds, [...gains], profile, Math.round(state.envelope), divisor);
+  const { gains: baseGains } = buildBaseGains(rounds, state.style, divisor);
+
+  const balancedGains = [];
+  let distributed = 0;
+  const envelope = Math.round(state.envelope);
+
+  rounds.forEach((round, index) => {
+    const winnersPaid = Math.max(0, round.matchesPlayed);
+    const remainingBudget = Math.max(0, envelope - distributed);
+
+    if (winnersPaid === 0 || remainingBudget === 0) {
+      balancedGains.push(0);
+      return;
+    }
+
+    const maxAffordable = roundDownToDivisible(
+      Math.floor(remainingBudget / winnersPaid),
+      divisor,
+    );
+
+    const progressiveTarget = index > 0
+      ? Math.max(baseGains[index], balancedGains[index - 1] + divisor)
+      : baseGains[index];
+
+    const cappedTarget = Math.min(progressiveTarget, maxAffordable);
+    const safeGain = Math.max(0, roundDownToDivisible(cappedTarget, divisor));
+
+    balancedGains.push(safeGain);
+    distributed += safeGain * winnersPaid;
+  });
 
   const proposal = rounds.map((round, index) => {
     const gainPerVictory = balancedGains[index];
@@ -462,6 +490,20 @@ function updateStatus() {
   const previousRound = state.rounds[state.rounds.length - 2];
   const isFinalValid = !lastRound || !previousRound || lastRound.gainPerVictory > previousRound.gainPerVictory;
 
+  if (state.mode === 'auto') {
+    if (difference === 0) {
+      elements.statusBox.className = 'status status-success';
+      elements.statusBox.textContent = 'Répartition cohérente : la somme distribuée correspond exactement à l’enveloppe.';
+    } else if (difference > 0) {
+      elements.statusBox.className = 'status status-warning';
+      elements.statusBox.textContent = `Reliquat non distribué : ${formatCurrency(difference)}`;
+    } else {
+      elements.statusBox.className = 'status status-danger';
+      elements.statusBox.textContent = `Écart : le total dépasse l’enveloppe de ${formatCurrency(Math.abs(difference))}.`;
+    }
+    return;
+  }
+
   if (difference === 0 && isFinalValid) {
     elements.statusBox.className = 'status status-success';
     elements.statusBox.textContent = 'Répartition cohérente : la somme distribuée correspond exactement à l’enveloppe.';
@@ -470,7 +512,11 @@ function updateStatus() {
     elements.statusBox.textContent = 'Répartition impossible : la finale devient inférieure à l’avant-dernière partie.';
   } else if (difference > 0) {
     elements.statusBox.className = 'status status-warning';
-    elements.statusBox.textContent = `Écart : il reste ${formatCurrency(difference)} à répartir (euros entiers uniquement).`;
+    if (state.mode === 'auto') {
+      elements.statusBox.textContent = `Reliquat non distribué : ${formatCurrency(difference)}`;
+    } else {
+      elements.statusBox.textContent = `Écart : il reste ${formatCurrency(difference)} à répartir (euros entiers uniquement).`;
+    }
   } else {
     elements.statusBox.className = 'status status-danger';
     elements.statusBox.textContent = `Écart : le total dépasse l’enveloppe de ${formatCurrency(Math.abs(difference))}.`;
